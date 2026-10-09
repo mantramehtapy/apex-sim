@@ -1,0 +1,40 @@
+[package]
+name = "apexsim"
+version = "0.1.0"
+edition = "2021"
+description = "Apex Sim: deterministic open-wheel racing simulator, Rust core (fixed 4 ms timestep)"
+
+# Phase 12 adds `cdylib` so the Python training loop can hold a live handle to
+# the Rust environment and step it in process, rather than paying a process
+# launch per action (see `gym::ffi`). `rlib` stays: the binary and every
+# integration test suite link the library, and a cdylib alone would not give
+# them the crate.
+[lib]
+name = "apexsim"
+crate-type = ["rlib", "cdylib"]
+
+# Phase 1 core is std-only by design. Phase 2 adds the server layer:
+# axum (HTTP + WebSocket, the plan's candidate framework), tokio for async
+# I/O, and serde for the versioned wire messages. Phase 6 adds the tokio
+# signal feature for graceful Ctrl-C shutdown.
+[dependencies]
+axum = { version = "=0.8.4", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.27"
+# std has no SO_RCVBUF setter, and the Phase 9 capture test needs one: a
+# max-speed race publishes a burst far faster than any reader thread drains
+# it, and the *kernel* silently drops the overflow before the test ever sees
+# a packet. Already in the tree transitively via tokio, so this adds no new
+# dependency to the build.
+socket2 = "0.6"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

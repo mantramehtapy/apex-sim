@@ -1,0 +1,8 @@
+{
+  "n": 4000,
+  "max_abs_diff": 2.2351741790771484e-07,
+  "max_rel_diff": 2.2351741790771484e-07,
+  "tolerance": 0.0001,
+  "pass": true,
+  "reference": "onnxruntime CPUExecutionProvider"
+}

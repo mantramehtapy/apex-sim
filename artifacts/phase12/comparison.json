@@ -1,0 +1,55 @@
+{
+  "seeds": [
+    9000,
+    9001,
+    9002,
+    9003,
+    9004,
+    9005,
+    9006,
+    9007,
+    9008,
+    9009
+  ],
+  "cars": 20,
+  "laps": 4,
+  "declared_metrics": [
+    "best_lap_s",
+    "laps",
+    "position",
+    "progress_m"
+  ],
+  "baseline": {
+    "episodes": 10,
+    "finished": 10,
+    "retired": 0,
+    "mean_best_lap_s": 31.660000000000007,
+    "mean_laps": 5.0,
+    "mean_position": 2.5,
+    "mean_progress_m": 5428.0373883900265,
+    "fallbacks": 0,
+    "actions": 89058
+  },
+  "learned": {
+    "episodes": 10,
+    "finished": 10,
+    "retired": 0,
+    "mean_best_lap_s": 8.802,
+    "mean_laps": 3.3,
+    "mean_position": 14.8,
+    "mean_progress_m": 3196.261121995528,
+    "fallbacks": 0,
+    "actions": 103122
+  },
+  "deltas": {
+    "best_lap_s": -22.858000000000008,
+    "laps": -1.7000000000000002,
+    "position": 12.3,
+    "progress_m": -2231.7762663944986
+  },
+  "improves": false,
+  "reasons": [
+    "no further down the road",
+    "classified 12.30 places worse on average"
+  ]
+}

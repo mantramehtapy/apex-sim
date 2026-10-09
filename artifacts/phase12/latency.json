@@ -1,0 +1,12 @@
+{
+  "cars": 20,
+  "runs": 3000,
+  "p50_us": 11.7,
+  "p99_us": 14.2,
+  "max_us": 64.9,
+  "mean_us": 11.812833333333428,
+  "budget_us": 20000.0,
+  "within_budget": true,
+  "model": "artifacts\\phase12\\policy.onnx",
+  "op_nodes": 6
+}

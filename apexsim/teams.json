@@ -1,0 +1,81 @@
+{
+  "teams": [
+    {
+      "name": "Vortex",
+      "engine": 1.012,
+      "top_speed": 1.01,
+      "brakes": 1.006,
+      "tyres": 1.008
+    },
+    {
+      "name": "Aurora",
+      "engine": 1.018,
+      "top_speed": 1.012,
+      "brakes": 1.004,
+      "tyres": 1.014
+    },
+    {
+      "name": "Falcon",
+      "engine": 1.008,
+      "top_speed": 1.016,
+      "brakes": 1.01,
+      "tyres": 1.012
+    },
+    {
+      "name": "Meridian",
+      "engine": 1.014,
+      "top_speed": 1.008,
+      "brakes": 1.008,
+      "tyres": 1.002
+    },
+    {
+      "name": "Titan",
+      "engine": 1.002,
+      "top_speed": 1.004,
+      "brakes": 1.002,
+      "tyres": 1.0
+    },
+    {
+      "name": "Juniper",
+      "engine": 0.996,
+      "top_speed": 0.998,
+      "brakes": 1.0,
+      "tyres": 0.996
+    },
+    {
+      "name": "Cobalt",
+      "engine": 0.99,
+      "top_speed": 0.994,
+      "brakes": 0.996,
+      "tyres": 0.992
+    },
+    {
+      "name": "Zenith",
+      "engine": 0.994,
+      "top_speed": 0.99,
+      "brakes": 0.998,
+      "tyres": 0.998
+    },
+    {
+      "name": "Everest",
+      "engine": 0.988,
+      "top_speed": 0.992,
+      "brakes": 0.994,
+      "tyres": 0.99
+    },
+    {
+      "name": "Sable",
+      "engine": 0.982,
+      "top_speed": 0.986,
+      "brakes": 0.992,
+      "tyres": 0.984
+    },
+    {
+      "name": "Polaris",
+      "engine": 0.984,
+      "top_speed": 0.988,
+      "brakes": 0.99,
+      "tyres": 0.986
+    }
+  ]
+}

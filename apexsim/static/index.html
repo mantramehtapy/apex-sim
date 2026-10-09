@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>apexsim dashboard</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #2d333b; --text: #e6edf3;
+    --muted: #8b949e; --accent: #58a6ff; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 "Segoe UI", system-ui, sans-serif;
+    display: flex; height: 100vh; overflow: hidden;
+  }
+  #left { flex: 1; display: flex; align-items: center; justify-content: center; min-width: 0; position: relative; }
+  canvas { background: #0a0d12; border: 1px solid var(--line); border-radius: 8px; max-width: 96%; max-height: 94%; cursor: grab; }
+  canvas.panning { cursor: grabbing; }
+  #viewbar {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 6px; align-items: center; z-index: 5;
+    background: rgba(22, 27, 34, .88); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+  }
+  #viewbar button { flex: none; padding: 3px 10px; font-size: 12px; }
+  #viewbar button.active { border-color: var(--accent); color: var(--accent); }
+  #vZoomLabel { min-width: 46px; text-align: center; font: 12px Consolas, monospace; color: var(--muted); }
+  #viewhint {
+    position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: var(--muted); opacity: .75; pointer-events: none; white-space: nowrap;
+  }
+  /* Track editor overlay */
+  #editor {
+    position: absolute; inset: 0; z-index: 10; display: none;
+    background: rgba(10, 13, 18, .96); border-radius: 8px;
+    flex-direction: column; padding: 12px 16px;
+  }
+  #editor.on { display: flex; }
+  #edbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  #edbar input[type="text"] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 5px; padding: 5px 8px; font: 13px Consolas, monospace; width: 140px;
+  }
+  #edbar input[type="range"] { width: 110px; }
+  #edbar button { flex: none; padding: 5px 12px; font-size: 12px; }
+  #edbar button.primary { border-color: var(--accent); color: var(--accent); }
+  #edStatus { font: 12px Consolas, monospace; color: var(--muted); margin-bottom: 6px; white-space: pre-wrap; }
+  #edStatus.bad { color: var(--bad); }
+  #edStatus.good { color: var(--good); }
+  #edStatus.warn { color: var(--warn); }
+  #edCanvasWrap { flex: 1; position: relative; min-height: 0; }
+  #edcv { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair;
+          background: #0a0d12; border: 1px solid var(--line); border-radius: 6px; }
+  #edHint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  #right {
+    width: 360px; flex: none; padding: 14px; overflow-y: auto;
+    border-left: 1px solid var(--line); background: var(--panel);
+  }
+  h1 { font-size: 16px; margin: 0 0 2px; }
+  .sid { color: var(--muted); font-size: 12px; margin-bottom: 10px; font-family: Consolas, monospace; }
+  .status { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--bad); }
+  .dot.ok { background: var(--good); } .dot.warn { background: var(--warn); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .cell { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  .cell .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+  .cell .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .cell .v small { font-size: 11px; color: var(--muted); font-weight: 400; }
+  .buttons { display: flex; gap: 8px; margin-bottom: 12px; }
+  button {
+    flex: 1; padding: 9px 0; background: #21262d; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 12px; padding: 8px 10px 10px; }
+  legend { color: var(--muted); font-size: 11px; text-transform: uppercase; padding: 0 4px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row label { width: 52px; color: var(--muted); font-size: 12px; }
+  .row input { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--text);
+    border-radius: 4px; padding: 5px 8px; font-family: Consolas, monospace; font-size: 13px; }
+  .note { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  input[type=range] { padding: 0; height: 22px; accent-color: var(--accent); }
+  .rv { width: 42px; text-align: right; font-family: Consolas, monospace; font-size: 12px; color: var(--accent); }
+  #wxPanel[hidden] { display: none; }
+  #laps, #events { font-family: Consolas, monospace; font-size: 12px; }
+  #laps div { display: flex; justify-content: space-between; padding: 2px 4px; border-radius: 4px; }
+  #laps div.best { color: var(--good); }
+  #events { color: var(--muted); max-height: 160px; overflow-y: auto; }
+  #events div { padding: 1px 4px; }
+  #events .t { color: var(--accent); }
+  #order { font-family: Consolas, monospace; font-size: 12px; }
+  #order .orow { display: flex; gap: 8px; padding: 1px 4px; border-radius: 4px; }
+  #order .orow.lead { background: #1c2a1e; }
+  #order .p { width: 26px; color: var(--muted); }
+  #order .c { width: 44px; }
+  #order .g { flex: 1; text-align: right; }
+  #order .out { color: var(--bad); }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 6px; }
+  .gap { height: 10px; }
+  .grid.tight { gap: 6px; margin-bottom: 8px; }
+  .grid.tight .cell { padding: 6px 8px; }
+  .rv.wide { flex: 1; text-align: left; color: var(--text); font-size: 12px; }
+  .rv.wide .bad { color: var(--bad); } .rv.wide .good { color: var(--good); }
+  #cueList { font-family: Consolas, monospace; font-size: 11px; margin-top: 6px;
+    max-height: 150px; overflow-y: auto; }
+  #cueList div { display: flex; justify-content: space-between; padding: 1px 4px; border-radius: 3px; }
+  #cueList .n { color: var(--muted); }
+  #cueList div.live { background: #1c2a1e; }
+</style>
+</head>
+<body>
+<div id="left">
+  <canvas id="cv" width="860" height="560"></canvas>
+  <div id="viewbar">
+    <button id="vZoomOut" title="Zoom out">−</button>
+    <span id="vZoomLabel">100%</span>
+    <button id="vZoomIn" title="Zoom in">+</button>
+    <button id="vReset">Reset view</button>
+    <button id="vFollow" title="Keep the leader centred">Follow leader</button>
+    <button id="vEditor" title="Draw your own circuit">Editor</button>
+  </div>
+  <div id="viewhint">scroll = zoom · drag = pan · double-click = reset</div>
+  <div id="editor">
+    <div id="edbar">
+      <b style="font-size:13px">Track editor</b>
+      <input id="edName" type="text" placeholder="circuit name" value="mytrack">
+      <label style="font-size:12px;color:var(--muted)">width
+        <input id="edWidth" type="range" min="4" max="12" step="0.5" value="7">
+        <span id="edWidthV">7.0 m</span></label>
+      <button id="edUndo">Undo</button>
+      <button id="edClear">Clear</button>
+      <span style="flex:1"></span>
+      <button id="edSave">Save</button>
+      <button id="edSaveRace" class="primary">Save &amp; race</button>
+      <button id="edExit">Exit</button>
+    </div>
+    <div id="edStatus">Click to place corners. The circuit closes through your points.</div>
+    <div id="edCanvasWrap"><canvas id="edcv"></canvas></div>
+    <div id="edHint">click = add corner · drag = move corner · double-click a corner = delete ·
+      anything you draw races — the engine only needs a closed loop (3+ corners); tight
+      corners, crossings and short laps are accepted, the status line just tells you
+      what you built</div>
+  </div>
+</div>
+<div id="right">
+  <h1>Apex Sim</h1>
+  <div class="sid" id="sid">—</div>
+  <div class="status"><span class="dot" id="dot"></span><span id="conn">connecting…</span></div>
+  <div class="grid">
+    <div class="cell"><div class="k">Speed</div><div class="v" id="speed">0<small> km/h</small></div></div>
+    <div class="cell"><div class="k">Lap</div><div class="v" id="lap">0/0</div></div>
+    <div class="cell"><div class="k">Session</div><div class="v" id="phase" style="font-size:15px">—</div></div>
+    <div class="cell"><div class="k">Last lap</div><div class="v" id="lastlap">—</div></div>
+    <div class="cell"><div class="k">Snapshot age</div><div class="v" id="age" style="font-size:15px">— ms</div></div>
+    <div class="cell"><div class="k">Stream</div><div class="v" id="stream" style="font-size:15px">seq 0</div></div>
+    <div class="cell"><div class="k">Field</div><div class="v" id="field" style="font-size:15px">—</div></div>
+    <div class="cell"><div class="k">Contacts</div><div class="v" id="contacts">—</div></div>
+  </div>
+  <div class="buttons">
+    <button id="bStart">Start</button>
+    <button id="bPause">Pause</button>
+    <button id="bResume">Resume</button>
+    <button id="bReset">Reset</button>
+  </div>
+  <fieldset>
+    <legend>Settings (applied on Reset)</legend>
+    <div class="row"><label>Seed</label><input id="iSeed" type="number" value="42"></div>
+    <div class="row"><label>Laps</label><input id="iLaps" type="number" min="1" max="1000" value="999"></div>
+    <div class="row"><label>Noise</label><input id="iNoise" type="number" step="0.001" min="0" max="0.1" value="0"></div>
+    <div class="row"><label>Surface</label><select id="iPreset">
+      <option value="">keep zones</option>
+      <option value="dry">dry</option>
+      <option value="damp">damp</option>
+      <option value="wet">wet</option>
+      <option value="mixed">mixed</option>
+    </select></div>
+    <div class="note" id="cfgNote">Settings are validated server-side and staged for the next reset.</div>
+  </fieldset>
+  <fieldset id="wxPanel" hidden>
+    <legend>Race director — weather</legend>
+    <div class="row"><label>Water</label><input id="sWater" type="range" min="0" max="1" step="0.01" value="0"><span class="rv" id="vWater">0.00</span></div>
+    <div class="row"><label>Track °C</label><input id="sTemp" type="range" min="-10" max="70" step="1" value="35"><span class="rv" id="vTemp">35</span></div>
+    <div class="row"><label>Grip</label><input id="sGrip" type="range" min="0.5" max="1.2" step="0.01" value="1"><span class="rv" id="vGrip">1.00</span></div>
+    <div class="note" id="wxNote">Drag, release to send. Each move is queued for the next simulation tick.</div>
+  </fieldset>
+  <h2>Race order</h2>
+  <div id="order"><div class="orow"><span class="c" style="color:var(--muted)">waiting…</span></div></div>
+  <div class="gap"></div>
+  <h2>Laps</h2><div id="laps"><div><span>waiting…</span></div></div>
+  <div class="gap"></div>
+  <h2>Events</h2><div id="events"></div>
+  <div class="gap"></div>
+
+  <!-- Phase 9. Both panels are hidden until the server says the feature is
+       on, so a default run shows no empty instrumentation. -->
+  <fieldset id="telPanel" hidden>
+    <legend>Telemetry out</legend>
+    <div class="grid tight">
+      <div class="cell"><div class="k">Offered</div><div class="v" id="telOff" style="font-size:15px">0</div></div>
+      <div class="cell"><div class="k">Sent</div><div class="v" id="telSent" style="font-size:15px">0</div></div>
+      <div class="cell"><div class="k">Dropped</div><div class="v" id="telDrop" style="font-size:15px">0</div></div>
+      <div class="cell"><div class="k">Wire bytes</div><div class="v" id="telBytes" style="font-size:15px">0</div></div>
+    </div>
+    <div class="row"><label>Rate</label><div class="rv wide" id="telRate">0 Hz of 0</div></div>
+    <div class="row"><label>Receiver</label><div class="rv wide" id="telReach">—</div></div>
+    <div class="note" id="telNote"></div>
+  </fieldset>
+
+  <fieldset id="sndPanel" hidden>
+    <legend>Sound</legend>
+    <div class="row"><label>Audio</label>
+      <button id="bAudio" style="flex:1;padding:5px 0;font-size:12px">Enable audio</button>
+    </div>
+    <div class="row"><label>Volume</label>
+      <input id="sVol" type="range" min="0" max="1" step="0.05" value="0.7">
+      <span class="rv" id="vVol">0.70</span>
+    </div>
+    <div class="row"><label>Extracted</label><div class="rv wide" id="sndCount">0</div></div>
+    <div class="note" id="sndNote">Cues are extracted in the simulation; this panel only plays them.</div>
+    <div id="cueList"></div>
+    <div class="note" id="sndHash"></div>
+  </fieldset>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let ws = null, nonce = 0, backoff = 250;
+let track = null, currentSid = "";
+let trackBounds = null; // {minX,minY,maxX,maxY} of track.points, cached until the circuit changes
+let prevSnap = null, latestSnap = null, prevRecvMs = 0, latestRecvMs = 0;
+let dropped = 0, connMode = "connecting";
+
+function setConn(mode, text) {
+  connMode = mode;
+  $("dot").className = "dot " + (mode === "ok" ? "ok" : mode === "warn" ? "warn" : "");
+  $("conn").textContent = text;
+}
+
+function logEvent(html) {
+  const d = document.createElement("div");
+  const t = new Date().toLocaleTimeString();
+  d.innerHTML = `<span class="t">${t}</span> ${html}`;
+  $("events").prepend(d);
+  while ($("events").children.length > 40) $("events").lastChild.remove();
+}
+
+function connect() {
+  const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+  ws = new WebSocket(url);
+  ws.onopen = () => { backoff = 250; setConn("ok", "connected"); };
+  ws.onclose = () => {
+    setConn("warn", "reconnecting…");
+    setTimeout(connect, backoff);
+    backoff = Math.min(4000, backoff * 2);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = e => {
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    switch (m.type) {
+      case "welcome":
+        track = m.track;
+        trackBounds = null; // new circuit (or first connect): recompute extents
+        acceptSnapshot(m.snapshot, true);
+        logEvent(`welcome — session <b>${m.snapshot.sid}</b>`);
+        break;
+      case "snapshot": acceptSnapshot(m, false); break;
+      case "event": onEvent(m.event); break;
+      case "ack":
+        if (m.status === "queued") {
+          logEvent(`ack <b>${m.status}</b> nonce ${m.nonce}`);
+        } else {
+          logEvent(`ack <b style="color:var(--warn)">${m.status}</b> — ${m.detail}`);
+          if (m.status === "rejected_stale_session") currentSid = ""; // force resync
+        }
+        break;
+      case "event_gap": logEvent(`<b style="color:var(--warn)">event gap</b> — ${m.missed} missed`); break;
+    }
+  };
+}
+
+function acceptSnapshot(s, fresh) {
+  if (s.sid !== currentSid || fresh) {
+    if (currentSid && s.sid !== currentSid) logEvent(`session → <b>${s.sid}</b>`);
+    currentSid = s.sid; prevSnap = null; dropped = 0; cueSeen = 0;
+  } else if (prevSnap && s.seq > prevSnap.seq + 1) {
+    dropped += s.seq - prevSnap.seq - 1;
+  }
+  if (latestSnap) { prevSnap = latestSnap; prevRecvMs = latestRecvMs; }
+  latestSnap = s; latestRecvMs = performance.now();
+  renderOrder();
+  renderWeather();
+  renderTelemetry();
+  renderSound();
+}
+
+function renderOrder() {
+  const s = latestSnap;
+  if (!s) return;
+  // Weekend qualifying: render the order sheet (rows so far + live run).
+  if (s.quali && s.quali.rows) {
+    const q = s.quali;
+    const rows = [...q.rows].sort((a, b) =>
+      (a.best_lap_s ?? 1e9) - (b.best_lap_s ?? 1e9) || a.car - b.car);
+    let html = `<div class="orow lead"><span class="p">Q</span>` +
+      `<span class="c">#${q.car} ON TRACK</span>` +
+      `<span class="g">${Math.ceil(q.remaining_s)} s left</span></div>`;
+    rows.forEach((r, i) => {
+      const num = numberFor(r.car);
+      const team = teamFor(r.car);
+      const t = r.best_lap_s ? `${r.best_lap_s.toFixed(3)} s` : "no time";
+      html += `<div class="orow"><span class="p">${i + 1}</span>` +
+        `<span class="c">#${r.car}</span>${num ? `<span style="opacity:.85">${num}</span>` : ""}` +
+        `${team ? `<span style="color:var(--muted);font-size:11px">${team}</span>` : ""}` +
+        `<span class="g">${t}</span></div>`;
+    });
+    $("order").innerHTML = html;
+    return;
+  }
+  if (!s.leaderboard || !s.leaderboard.length) return;
+  const cpColor = { S: "#f85149", M: "#d29922", H: "#3fb950" };
+  $("order").innerHTML = s.leaderboard.map(r => {
+    const gap = r.retired ? "OUT" : r.gap_s == null ? "leader" : "+" + r.gap_s.toFixed(1) + " s";
+    const cp = `<span style="color:${cpColor[r.compound] || "var(--muted)"};font-weight:700">${r.compound || ""}</span>`;
+    const num = numberFor(r.id);
+    const numChip = num ? `<span style="color:var(--text);opacity:.85">${num}</span>` : "";
+    const team = teamFor(r.id);
+    const teamChip = team ? `<span style="color:var(--muted);font-size:11px">${team}</span>` : "";
+    const stops = r.stops > 0 ? `<small style="color:var(--muted)"> ${r.stops}p</small>` : "";
+    const pit = r.in_pit ? ` <b style="color:var(--accent)">PIT</b>` : "";
+    const blue = r.blue_flag ? ` <b style="color:#58a6ff">BLUE</b>` : "";
+    const drs = r.drs ? ` <b style="color:var(--good)">DRS</b>` : "";
+    const fuel = r.fuel != null
+      ? `<span style="color:${r.fuel < 25 ? "var(--bad)" : "var(--muted)"};font-size:11px" ` +
+        `title="fuel">F${r.fuel}</span>` : "";
+    const temp = r.tyre_temp != null
+      ? `<span style="color:${r.tyre_temp < 40 ? "#58a6ff" : "var(--muted)"};font-size:11px" ` +
+        `title="tyre temp">${r.tyre_temp < 40 ? "cold" : "temp " + r.tyre_temp}</span>` : "";
+    return `<div class="orow ${r.retired ? "out" : r.pos === 1 ? "lead" : ""}">` +
+      `<span class="p">P${r.pos}</span><span class="c">#${r.id}</span>${numChip}${teamChip}${cp}` +
+      `<span class="g">${gap}${stops}${pit}${blue}${drs}${fuel}${temp}</span></div>`;
+  }).join("");
+}
+
+const carColor = id => `hsl(${(id * 47 + 20) % 360} 70% 60%)`;
+
+// The user's 2026-season grid: sim car id i drives this livery (served at
+// /cars/{team}_{number}.png). 20-car default field = first 20 slots.
+const GRID_2026 = [
+  ["vortex", 8], ["vortex", 78],
+  ["aurora", 34], ["aurora", 66],
+  ["falcon", 51], ["falcon", 52],
+  ["meridian", 15], ["meridian", 45],
+  ["titan", 64], ["titan", 65],
+  ["juniper", 58], ["juniper", 96],
+  ["cobalt", 72], ["cobalt", 92],
+  ["zenith", 26], ["zenith", 84],
+  ["everest", 36], ["everest", 83],
+  ["sable", 41], ["sable", 93],
+  ["polaris", 19], ["polaris", 95],
+];
+const spriteFor = id => GRID_2026[id] ? `/cars/${GRID_2026[id][0]}_${GRID_2026[id][1]}.png` : null;
+const numberFor = id => GRID_2026[id] ? String(GRID_2026[id][1]) : null;
+// Three-letter tags for the leaderboard, keyed by the sprite team name.
+const TEAM_TAG = {
+  vortex: "VOR", aurora: "AUR", falcon: "FAL", meridian: "MER", titan: "TIT",
+  juniper: "JUN", cobalt: "COB", zenith: "ZEN", everest: "EVE", sable: "SAB", polaris: "POL",
+};
+const teamFor = id => GRID_2026[id] ? TEAM_TAG[GRID_2026[id][0]] || "" : "";
+const spriteImgs = {};
+for (let i = 0; i < GRID_2026.length; i++) {
+  const img = new Image();
+  img.src = spriteFor(i);
+  spriteImgs[i] = img;
+}
+
+function onEvent(ev) {
+  const k = ev.kind;
+  if (k === "lap_completed") {
+    logEvent(`lap ${ev.n} — <b>${ev.time_s.toFixed(2)} s</b>`);
+    renderLaps();
+  } else if (k === "contact") {
+    logEvent(`contact <b>#${ev.a}–#${ev.b}</b> ${ev.closing_speed.toFixed(1)} m/s` +
+      (ev.retired != null ? ` — <b style="color:var(--bad)">#${ev.retired} OUT</b>` : ""));
+  } else if (k === "lights") {
+    // Start lights counted up in the HUD (phase cell); no log spam.
+  } else if (k === "green_flag") {
+    logEvent(`<b style="color:var(--good)">GREEN GREEN GREEN</b> — lights out`);
+  } else if (k === "pit_entered") {
+    logEvent(`#${ev.car} pits <small>(lap ${ev.lap})</small>`);
+  } else if (k === "pit_service_done") {
+    logEvent(`#${ev.car} away — <b>${ev.held_s.toFixed(1)} s</b> stop`);
+  } else if (k === "pit_exited") {
+    logEvent(`#${ev.car} rejoins <small>(${ev.lane_s.toFixed(1)} s in lane)</small>`);
+  } else if (k === "fastest_lap") {
+    logEvent(`<b style="color:var(--good)">fastest lap</b> #${ev.car} — <b>${ev.time_s.toFixed(2)} s</b> <small>(lap ${ev.lap})</small>`);
+  } else if (k === "weather_queued") {
+    logEvent(`director: <b>${ev.slider}</b> → ${ev.value.toFixed(2)} <small>queued for tick ${ev.tick}</small>`);
+  } else if (k === "weather_applied") {
+    logEvent(`<b style="color:var(--accent)">${ev.slider}</b> = ${ev.value.toFixed(2)} in effect`);
+  } else if (k === "sound_cue_fired") {
+    // Cues are frequent by design (thousands per second of accelerated
+    // simulation), so they drive the audio and the tally rather than the
+    // event log. The cue list itself is the readable record.
+    onCue(ev);
+  } else if (k === "command_rejected") {
+    logEvent(`<b style="color:var(--warn)">rejected</b> ${ev.cmd} — ${ev.reason}`);
+  } else if (k === "weekend_phase") {
+    if (ev.phase === "quali-run-done") {
+      const t = ev.best_lap_s ? `${ev.best_lap_s.toFixed(3)} s` : "no time";
+      logEvent(`<b style="color:var(--accent)">QUALIFYING</b> car ${ev.car} done — ${t} (${ev.run}/${ev.total})`);
+    } else if (ev.phase === "quali-run" || ev.phase === "quali-start") {
+      logEvent(`<b style="color:var(--accent)">QUALIFYING</b> car ${ev.car} on track (${ev.run}/${ev.total})`);
+    } else if (ev.phase === "race") {
+      logEvent(`<b style="color:var(--good)">GRID SET</b> — the race starts on the qualifying order`);
+    }
+  } else if (k === "car_out") {
+    logEvent(`<b style="color:var(--bad)">OUT</b> car ${ev.car} — ${ev.cause} (${ev.detail})`);
+  } else if (k === "safety_car") {
+    const txt = ev.phase === "deployed"
+      ? `<b style="color:var(--warn)">SAFETY CAR DEPLOYED</b> — no overtaking`
+      : `<b style="color:var(--good)">TRACK CLEAR</b> — racing resumes`;
+    logEvent(txt);
+  } else if (k === "reset") {
+    logEvent(`reset — new seed ${ev.seed}`);
+    $("laps").innerHTML = ""; renderLaps();
+    // A staged track change (editor: save & race) lands with the reset, so
+    // re-fetch the circuit the new session drives and invalidate the cached
+    // extents.
+    fetch("/api/track").then(r => r.json()).then(t => {
+      if (t && t.points && t.points.length) { track = t; trackBounds = null; }
+    }).catch(() => {});
+  } else {
+    logEvent(k.replace(/_/g, " "));
+  }
+}
+
+function sendCmd(cmd) {
+  if (!ws || ws.readyState !== 1) return logEvent("command dropped — no connection");
+  ws.send(JSON.stringify({ v: 1, sid: currentSid, nonce: ++nonce, cmd }));
+}
+
+// Race-director sliders. `input` moves the readout, `change` sends: a drag
+// emits dozens of intermediate values and the queue only needs the last one.
+const SLIDERS = [["sWater", "vWater", "water", 2], ["sTemp", "vTemp", "track_temp", 0], ["sGrip", "vGrip", "grip", 2]];
+let dragging = null;
+for (const [sid, vid, name, dp] of SLIDERS) {
+  const el = $(sid);
+  el.addEventListener("input", () => { dragging = sid; $(vid).textContent = (+el.value).toFixed(dp); });
+  el.addEventListener("change", () => {
+    dragging = null;
+    sendCmd(`slider:${name}:${(+el.value).toFixed(4)}`);
+  });
+}
+
+// Follow the simulation, unless a finger is on the slider — yanking it back
+// mid-drag would make the control unusable.
+function renderWeather() {
+  const w = latestSnap && latestSnap.weather;
+  $("wxPanel").hidden = !w;
+  if (!w) return;
+  const vals = { sWater: w.water, sTemp: w.track_temp_c, sGrip: w.grip_scale };
+  for (const [sid, vid, , dp] of SLIDERS) {
+    const el = $(sid);
+    if (el === dragging) continue;
+    el.value = vals[sid];
+    $(vid).textContent = (+vals[sid]).toFixed(dp);
+  }
+  const t = (latestSnap.tick / 250).toFixed(1);
+  $("wxNote").textContent = `${w.label} — water ${w.water.toFixed(2)}, ${w.track_temp_c.toFixed(0)} °C, ` +
+    `grip ${w.grip_scale.toFixed(2)} × · ${w.applied} override${w.applied === 1 ? "" : "s"} applied` +
+    (w.queued ? ` · ${w.queued} queued` : "");
+}
+
+$("bStart").onclick = () => sendCmd("start");
+$("bPause").onclick = () => sendCmd("pause");
+$("bResume").onclick = () => sendCmd("resume");
+$("bReset").onclick = async () => {
+  const body = {
+    seed: parseInt($("iSeed").value, 10),
+    laps: parseInt($("iLaps").value, 10),
+    noise: parseFloat($("iNoise").value),
+  };
+  const preset = $("iPreset").value;
+  if (preset) body.weather = preset;
+  // Carry the panel's positions into the new session, so a reset keeps the
+  // scenario the director built rather than snapping back to neutral.
+  if (!$("wxPanel").hidden) {
+    body.water = parseFloat($("sWater").value);
+    body.track_temp_c = parseFloat($("sTemp").value);
+    body.grip = parseFloat($("sGrip").value);
+  }
+  try {
+    const r = await fetch("/api/config", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const j = await r.json();
+      $("cfgNote").textContent = "rejected: " + (j.error || r.status);
+      return;
+    }
+    $("cfgNote").textContent = "staged — will apply on reset";
+  } catch (err) { $("cfgNote").textContent = "config POST failed: " + err; return; }
+  sendCmd("reset");
+};
+
+// ---------------------------------------------------------------------------
+// Phase 9: telemetry panel.
+// ---------------------------------------------------------------------------
+// Offered and sent are shown as separate numbers on purpose. A gap between
+// them is the drop counter doing its job, and it is only legible if the
+// panel shows both sides of it rather than a single "packets" number.
+const fmt = n => n.toLocaleString();
+// One publish emits exactly two datagrams: Motion and Car Telemetry.
+const DATAGRAMS_PER_PUBLISH = 2;
+let telLastSent = 0, telLastAt = 0;
+const RATE_WINDOW_MS = 2000;
+
+function renderTelemetry() {
+  const t = latestSnap && latestSnap.telemetry;
+  $("telPanel").hidden = !t;
+  if (!t) return;
+  $("telOff").textContent = fmt(t.offered);
+  $("telSent").textContent = fmt(t.sent);
+  $("telDrop").textContent = fmt(t.dropped);
+  $("telBytes").textContent = fmt(t.bytes);
+
+  // Rate over a rolling ~2 s window. A single snapshot interval is far too
+  // short to divide by: snapshots arrive every tens of milliseconds, so one
+  // window holds a handful of datagrams and the result swings by tens of
+  // percent between refreshes — which reads as a fault in a number that is
+  // actually steady.
+  const now = performance.now();
+  if (!telLastAt) { telLastSent = t.sent; telLastAt = now; }
+  if (now - telLastAt >= RATE_WINDOW_MS) {
+    const dt = (now - telLastAt) / 1000;
+    // `sent` counts datagrams; `hz` counts publishes. Each publish emits two
+    // packets (Motion + Car Telemetry), so comparing the two directly would
+    // report double the configured rate — the same frame/datagram mismatch
+    // the counters had. Convert the measured datagram rate to publishes.
+    const datagramsPerS = (t.sent - telLastSent) / dt;
+    $("telRate").innerHTML =
+      `${Math.round(datagramsPerS / DATAGRAMS_PER_PUBLISH)} of ${t.hz} Hz · ` +
+      `${Math.round(datagramsPerS)} datagram/s`;
+    telLastSent = t.sent; telLastAt = now;
+  }
+
+  // "reachable" is the absence of an ICMP rejection on the last send. Nobody
+  // listening is a normal state, not an error — the race is unaffected.
+  const r = $("telReach");
+  r.innerHTML = t.reachable
+    ? `<span class="good">receiving</span> at ${t.hz} Hz`
+    : `<span class="bad">nothing listening</span>`;
+  $("telNote").textContent =
+    `UDP m_packetFormat 2025 · ${t.dropped} datagram(s) dropped when the sender fell behind · ` +
+    `physics never waited for the socket`;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9: sound panel + browser audio consumer.
+// ---------------------------------------------------------------------------
+// The browser is a *consumer*, not a second extractor. It plays the validated
+// assets for whatever the simulation already decided to fire, in the order
+// the server forwarded them. Synchronisation during pause, replay and
+// accelerated mode therefore comes for free: no cue arrives while paused, a
+// replay re-forwards the same log, and a fast run simply arrives faster.
+const CUES = [
+  "shift_up", "shift_down", "rev_limiter", "tyre_slip", "wind", "lap_complete",
+  "start_light", "green_flag", "pit_entered", "contact", "weather_change",
+  "session_finish", "formation_tick",
+];
+// Mirrors SoundCue::priority in src/sound.rs: 3 is never shed, 0 goes first.
+const PRIORITY = {
+  session_finish: 3, green_flag: 3, start_light: 3,
+  lap_complete: 2, contact: 2, pit_entered: 2, weather_change: 2, formation_tick: 2,
+  rev_limiter: 1, shift_up: 1, shift_down: 1,
+  tyre_slip: 0, wind: 0,
+};
+
+const audio = { ctx: null, buffers: {}, volume: 0.7, enabled: false, voices: 0 };
+let cueSeen = 0, lastCueAt = 0, sndExtracted = 0;
+
+$("bAudio").onclick = async () => {
+  if (audio.enabled) {
+    audio.enabled = false;
+    $("bAudio").textContent = "Enable audio";
+    $("sndNote").textContent = "Audio muted — cues are still being extracted.";
+    return;
+  }
+  const btn = $("bAudio");
+  btn.disabled = true;
+  btn.textContent = "loading…";
+  // A user gesture is required before an AudioContext may start; this click
+  // is what makes the context legal in the first place.
+  audio.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  await audio.ctx.resume();
+  try {
+    await Promise.all(CUES.map(async name => {
+      const r = await fetch(`/sounds/${name}.wav`);
+      if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+      audio.buffers[name] = await audio.ctx.decodeAudioData(await r.arrayBuffer());
+    }));
+  } catch (err) {
+    audio.ctx = null;
+    btn.textContent = "Enable audio";
+    btn.disabled = false;
+    $("sndNote").textContent = "Could not load the cue assets: " + err;
+    return;
+  }
+  audio.enabled = true;
+  btn.disabled = false;
+  btn.textContent = "Mute";
+  $("sndNote").textContent = "Playing the simulation's cue log — nothing is synthesised here.";
+};
+
+$("sVol").addEventListener("input", e => {
+  audio.volume = +e.target.value;
+  $("vVol").textContent = audio.volume.toFixed(2);
+});
+
+// A bounded voice count, so an accelerated run cannot open hundreds of
+// decoders at once and stall the main thread. The cues are dropped, never
+// reordered — which is the same contract the in-engine consumer has.
+const MAX_VOICES = 12;
+function playCue(name) {
+  if (!audio.enabled || !audio.ctx || audio.volume <= 0) return;
+  const buf = audio.buffers[name];
+  if (!buf) return;
+  if (audio.voices >= MAX_VOICES) return;
+  const src = audio.ctx.createBufferSource();
+  const gain = audio.ctx.createGain();
+  src.buffer = buf;
+  gain.gain.value = audio.volume;
+  src.connect(gain).connect(audio.ctx.destination);
+  audio.voices++;
+  src.onended = () => { audio.voices--; };
+  src.start();
+}
+
+function renderSound() {
+  const s = latestSnap && latestSnap.sound;
+  $("sndPanel").hidden = !s;
+  if (!s) return;
+  sndExtracted = s.events;
+  $("sndCount").textContent = `${fmt(s.events)} extracted · ${fmt(cueSeen)} received here`;
+  $("sndHash").textContent = `cue log hash ${s.log_hash.toString(16).padStart(16, "0")}` +
+    // The server forwards a bounded number of cues per snapshot pass, so on a
+    // fast race the browser trails the extractor on purpose. Say that, rather
+    // than implying a gap that will close.
+    (cueSeen < s.events
+      ? ` — ${fmt(s.events - cueSeen)} cue(s) not forwarded yet; the server caps cues per snapshot`
+      : "");
+  // Counts arrive ordered by priority, so the list is stable across snapshots.
+  const rows = s.counts.map(([name, n]) => {
+    const recent = name === lastCueName && performance.now() - lastCueAt < 350;
+    return `<div class="${recent ? "live" : ""}"><span>${name}</span>` +
+      `<span class="n">p${PRIORITY[name] ?? "?"} · ${fmt(n)}</span></div>`;
+  }).join("");
+  $("cueList").innerHTML = rows ||
+    `<div><span class="n">no cue has fired yet</span></div>`;
+}
+
+let lastCueName = "";
+function onCue(ev) {
+  cueSeen++;
+  lastCueName = ev.cue;
+  lastCueAt = performance.now();
+  playCue(ev.cue);
+  // Only the counter is touched here. Rebuilding the list on every cue would
+  // be thousands of innerHTML writes a second in accelerated mode; the list
+  // itself is refreshed from the next snapshot, which is the same pace the
+  // rest of the panel already runs at.
+  const n = $("sndCount");
+  if (n) n.textContent = `${fmt(sndExtracted)} extracted · ${fmt(cueSeen)} received here`;
+}
+
+function renderLaps() {
+  if (!latestSnap) return;
+  const times = latestSnap.lap_times;
+  const best = times.length ? Math.min(...times) : 0;
+  $("laps").innerHTML = times.map((t, i) =>
+    `<div class="${t === best ? "best" : ""}"><span>lap ${i + 1}</span><span>${t.toFixed(2)} s</span></div>`
+  ).join("") || "<div><span>waiting…</span></div>";
+}
+
+// ---------- rendering ----------
+const cv = $("cv"), cx = cv.getContext("2d");
+function render() {
+  requestAnimationFrame(render);
+  if (!track) return;
+  const now = performance.now();
+  const s = latestSnap, p = prevSnap;
+
+  // Interpolate between the last two snapshots toward display time.
+  let x = 0, y = 0, h = 0;
+  if (s) {
+    const interval = Math.max(1, latestRecvMs - (prevRecvMs || latestRecvMs - 40));
+    const alpha = Math.min(1, (now - latestRecvMs) / interval);
+    if (p && p.sid === s.sid) {
+      x = p.car.pos_x + (s.car.pos_x - p.car.pos_x) * alpha;
+      y = p.car.pos_y + (s.car.pos_y - p.car.pos_y) * alpha;
+      let dh = s.car.heading - p.car.heading;
+      while (dh > Math.PI) dh -= 2 * Math.PI;
+      while (dh < -Math.PI) dh += 2 * Math.PI;
+      h = p.car.heading + dh * alpha;
+    } else { x = s.car.pos_x; y = s.car.pos_y; h = s.car.heading; }
+  }
+
+  // World → screen transform (Y flipped), with zoom & pan.
+  // The base scale fits the whole circuit with `pad` margin; the view state
+  // (zoom factor + world-space viewport centre, or "follow the leader")
+  // then positions and magnifies that base fit. At zoom 1 with no pan this
+  // is pixel-identical to the old fit-to-canvas rendering.
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  if (!trackBounds) {
+    for (const [px, py] of track.points) {
+      minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+      minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+    }
+    trackBounds = { minX, minY, maxX, maxY };
+  } else {
+    ({ minX, minY, maxX, maxY } = trackBounds);
+  }
+  const pad = 30;
+  const sc0 = Math.min((cv.width - 2 * pad) / (maxX - minX), (cv.height - 2 * pad) / (maxY - minY));
+  const sc = sc0 * view.zoom;
+  const leadId = s && s.leaderboard && s.leaderboard.length ? s.leaderboard[0].id : -1;
+  let fx = view.cx ?? (minX + maxX) / 2, fy = view.cy ?? (minY + maxY) / 2;
+  if (followLeader && s && s.cars) {
+    const lead = s.cars.find(c => c.id === leadId);
+    if (lead) {
+      // Keep view.cx/cy in step so switching follow off doesn't jump the map.
+      fx = view.cx = lead.pos_x; fy = view.cy = lead.pos_y;
+    }
+  }
+  const tx = wx => cv.width / 2 + (wx - fx) * sc;
+  const ty = wy => cv.height / 2 - (wy - fy) * sc;
+
+  cx.clearRect(0, 0, cv.width, cv.height);
+  // Circuit dressing — ground layer (under the tarmac): run-off apron and
+  // gravel traps, derived by the server from this circuit's geometry.
+  if (track.dressing) {
+    const D = track.dressing;
+    if (D.runoff_m > 0) {
+      cx.strokeStyle = "#20303c"; cx.lineWidth = (track.half_width + D.runoff_m) * 2 * sc;
+      cx.lineJoin = "round"; cx.beginPath();
+      track.points.forEach(([px, py], i) => i ? cx.lineTo(tx(px), ty(py)) : cx.moveTo(tx(px), ty(py)));
+      cx.closePath(); cx.stroke();
+    }
+    if (D.gravel) for (const [gx, gy, gh, gw, gl] of D.gravel) {
+      cx.save(); cx.translate(tx(gx), ty(gy)); cx.rotate(-gh);
+      cx.fillStyle = "#8a7a4e"; cx.globalAlpha = 0.85;
+      cx.fillRect((-gw / 2) * sc, (-gl / 2) * sc, gw * sc, gl * sc);
+      cx.globalAlpha = 1; cx.restore();
+    }
+  }
+  // Track surface
+  cx.strokeStyle = "#2a313a"; cx.lineWidth = track.half_width * 2 * sc;
+  cx.lineJoin = "round"; cx.beginPath();
+  track.points.forEach(([px, py], i) => i ? cx.lineTo(tx(px), ty(py)) : cx.moveTo(tx(px), ty(py)));
+  cx.closePath(); cx.stroke();
+  // Centreline
+  cx.strokeStyle = "#454f5b"; cx.lineWidth = 1; cx.setLineDash([6, 8]); cx.stroke(); cx.setLineDash([]);
+  // Start/finish — a tick ACROSS the track at points[0], oriented by the
+  // local centreline direction (points[0] → points[1]), so it sits right on
+  // any circuit shape instead of only the stadium's horizontal start straight.
+  {
+    const A = [tx(track.points[0][0]), ty(track.points[0][1])];
+    const Bp = track.points[1 % track.points.length];
+    const B = [tx(Bp[0]), ty(Bp[1])];
+    let dx = B[0] - A[0], dy = B[1] - A[1];
+    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const half = 14 * Math.max(1, Math.min(view.zoom, 2.5));
+    cx.strokeStyle = "#e6edf3"; cx.lineWidth = 3;
+    cx.beginPath();
+    cx.moveTo(A[0] - dy * half, A[1] + dx * half);
+    cx.lineTo(A[0] + dy * half, A[1] - dx * half);
+    cx.stroke();
+  }
+  // Pit lane (race mode): dashed lane through entry → box → exit.
+  if (track.pit && track.pit.points && track.pit.points.length >= 3) {
+    cx.strokeStyle = "#58a6ff"; cx.lineWidth = 2; cx.setLineDash([5, 6]);
+    cx.beginPath();
+    track.pit.points.forEach(([px, py], i) =>
+      i ? cx.lineTo(tx(px), ty(py)) : cx.moveTo(tx(px), ty(py)));
+    cx.stroke(); cx.setLineDash([]);
+    // Box tick across the lane, oriented entry → box.
+    const bi = track.pit.box_index || 1;
+    const A = [tx(track.pit.points[0][0]), ty(track.pit.points[0][1])];
+    const B = [tx(track.pit.points[bi][0]), ty(track.pit.points[bi][1])];
+    let dx = B[0] - A[0], dy = B[1] - A[1];
+    const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+    const half = 8 * Math.max(1, Math.min(view.zoom, 2.5));
+    cx.strokeStyle = "#8b949e"; cx.lineWidth = 3;
+    cx.beginPath();
+    cx.moveTo(B[0] - dy * half, B[1] + dx * half);
+    cx.lineTo(B[0] + dy * half, B[1] - dx * half);
+    cx.stroke();
+    cx.fillStyle = "#58a6ff"; cx.font = `${Math.round(11 * Math.max(1, Math.min(view.zoom, 2)))}px Consolas`;
+    cx.fillText("PIT", B[0] + dx * 12 + 6, B[1] + dy * 12 + 4);
+  }
+
+  // Local yellow sectors: paint the affected arc of the track surface.
+  if (s && s.rc && s.rc.yellows && s.rc.yellows.length && track.points.length) {
+    const N = track.points.length;
+    cx.strokeStyle = "#d29922"; cx.lineWidth = track.half_width * 2 * sc + 5 * Math.max(1, Math.min(view.zoom, 2.5));
+    cx.globalAlpha = 0.28; cx.lineCap = "butt";
+    for (const [fromS, toS] of s.rc.yellows) {
+      let i0 = Math.round((fromS / track.length) * N);
+      let i1 = Math.round((toS / track.length) * N);
+      cx.beginPath();
+      if (i0 <= i1) {
+        for (let i = i0; i <= i1; i++) {
+          const [px, py] = track.points[i % N];
+          i === i0 ? cx.moveTo(tx(px), ty(py)) : cx.lineTo(tx(px), ty(py));
+        }
+      } else {
+        // zone wraps the start/finish: two strokes
+        for (let i = i0; i < N; i++) {
+          const [px, py] = track.points[i];
+          i === i0 ? cx.moveTo(tx(px), ty(py)) : cx.lineTo(tx(px), ty(py));
+        }
+        cx.stroke();
+        cx.beginPath();
+        for (let i = 0; i <= i1; i++) {
+          const [px, py] = track.points[i];
+          i === 0 ? cx.moveTo(tx(px), ty(py)) : cx.lineTo(tx(px), ty(py));
+        }
+      }
+      cx.stroke();
+    }
+    cx.globalAlpha = 1; cx.lineCap = "butt";
+  }
+
+  // Circuit dressing — structures layer (over tarmac, under cars).
+  if (track.dressing) {
+    const D = track.dressing;
+    // Pit wall.
+    if (D.pit_wall && D.pit_wall.length > 1) {
+      cx.strokeStyle = "#e6edf3"; cx.lineWidth = 2 * Math.max(1, Math.min(view.zoom, 2));
+      cx.beginPath();
+      D.pit_wall.forEach(([px, py], i) => i ? cx.lineTo(tx(px), ty(py)) : cx.moveTo(tx(px), ty(py)));
+      cx.stroke();
+    }
+    // Garages: dark boxes with lit fronts, along the pit lane.
+    if (D.garages) for (const [gx, gy, gh, gw, gl] of D.garages) {
+      cx.save(); cx.translate(tx(gx), ty(gy)); cx.rotate(-gh);
+      cx.fillStyle = "#1b2129"; cx.strokeStyle = "#454f5b"; cx.lineWidth = 1;
+      cx.fillRect((-gw / 2) * sc, (-gl / 2) * sc, gw * sc, gl * sc);
+      cx.strokeRect((-gw / 2) * sc, (-gl / 2) * sc, gw * sc, gl * sc);
+      cx.fillStyle = "#d29922"; cx.globalAlpha = 0.7;
+      cx.fillRect((-gw / 2 + 1) * sc, (-gl / 2) * sc, (gw - 2) * sc, 1.2 * sc);
+      cx.globalAlpha = 1; cx.restore();
+    }
+    // Grandstands.
+    if (D.stands) for (const [sx2, sy2, sh, sw, sl] of D.stands) {
+      cx.save(); cx.translate(tx(sx2), ty(sy2)); cx.rotate(-sh);
+      cx.fillStyle = "#232b36"; cx.strokeStyle = "#454f5b"; cx.lineWidth = 1;
+      cx.fillRect((-sw / 2) * sc, (-sl / 2) * sc, sw * sc, sl * sc);
+      cx.strokeRect((-sw / 2) * sc, (-sl / 2) * sc, sw * sc, sl * sc);
+      // Seat rows.
+      cx.strokeStyle = "#3a4450";
+      const rows = 4;
+      for (let r = 1; r < rows; r++) {
+        const yy = (-sl / 2 + (sl * r) / rows) * sc;
+        cx.beginPath(); cx.moveTo((-sw / 2 + 1) * sc, yy); cx.lineTo((sw / 2 - 1) * sc, yy); cx.stroke();
+      }
+      cx.restore();
+    }
+    // Start/finish gantry: a span line over the track with posts.
+    if (D.gantry) {
+      const [gx, gy, gh, span] = D.gantry;
+      cx.save(); cx.translate(tx(gx), ty(gy)); cx.rotate(-gh);
+      cx.strokeStyle = "#8b949e"; cx.lineWidth = 3 * Math.max(1, Math.min(view.zoom, 2));
+      cx.beginPath();
+      cx.moveTo(0, (-span / 2) * sc); cx.lineTo(0, (span / 2) * sc);
+      cx.stroke();
+      cx.fillStyle = "#d29922";
+      cx.beginPath(); cx.arc(0, 0, 2.2 * Math.max(1, Math.min(view.zoom, 2)), 0, 2 * Math.PI); cx.fill();
+      cx.restore();
+    }
+  }
+
+  // SAFETY CAR (realism pack): drawn like a car but amber, with SC marks.
+  if (s && s.rc && s.rc.sc_car) {
+    const [scx, scy, sch] = s.rc.sc_car;
+    // The pose is current-state, not interpolated; that is fine — the SC
+    // holds a steady 22 m/s line.
+    cx.save();
+    cx.translate(tx(scx), ty(scy));
+    cx.rotate(Math.PI / 2 - sch);
+    const zf = Math.min(Math.pow(view.zoom, 0.6), 3);
+    cx.scale(zf, zf);
+    cx.fillStyle = "#d29922"; cx.strokeStyle = "#e6edf3"; cx.lineWidth = 1;
+    cx.beginPath();
+    cx.moveTo(11, 0); cx.lineTo(-7, -5.5); cx.lineTo(-4, 0); cx.lineTo(-7, 5.5);
+    cx.closePath(); cx.fill(); cx.stroke();
+    cx.fillStyle = "#0a0d12"; cx.font = "bold 5px Consolas";
+    cx.fillText("SC", -3.4, 1.8);
+    cx.restore();
+  }
+
+  // Cars. Race mode (snapshot.cars non-empty): every car, interpolated
+  // per id between the last two snapshots; leader ringed, retired grey.
+  if (s && s.cars && s.cars.length) {
+    const interval = Math.max(1, latestRecvMs - (prevRecvMs || latestRecvMs - 40));
+    const alpha = Math.min(1, (now - latestRecvMs) / interval);
+    const prevById = new Map();
+    if (p && p.cars && p.sid === s.sid) for (const c of p.cars) prevById.set(c.id, c);
+    // Sprites grow sub-linearly with zoom (clamped) so zooming in shows the
+    // cars without them ever covering the circuit.
+    const zf = Math.min(Math.pow(view.zoom, 0.6), 3);
+    const carSize = 26 * zf;
+    for (const c of s.cars) {
+      let wx = c.pos_x, wy = c.pos_y, wh = c.heading;
+      const pc = prevById.get(c.id);
+      if (pc) {
+        wx = pc.pos_x + (c.pos_x - pc.pos_x) * alpha;
+        wy = pc.pos_y + (c.pos_y - pc.pos_y) * alpha;
+        let dh = c.heading - pc.heading;
+        while (dh > Math.PI) dh -= 2 * Math.PI;
+        while (dh < -Math.PI) dh += 2 * Math.PI;
+        wh = pc.heading + dh * alpha;
+      }
+      cx.save();
+      cx.translate(tx(wx), ty(wy));
+      // Sprites are normalized nose-UP by tools/make_sprites.py (the four
+      // flipped source files are corrected during generation); rotate so
+      // the nose follows the heading.
+      cx.rotate(Math.PI / 2 - wh);
+      const sprite = spriteImgs[c.id];
+      if (c.retired) cx.globalAlpha = 0.35;
+      if (sprite && sprite.complete && sprite.naturalWidth > 0) {
+        cx.drawImage(sprite, -carSize / 2, -carSize / 2, carSize, carSize);
+      } else {
+        cx.scale(zf, zf);
+        cx.fillStyle = c.retired ? "#4b5159" : carColor(c.id);
+        cx.beginPath();
+        cx.moveTo(9, 0); cx.lineTo(-6, -5); cx.lineTo(-3.5, 0); cx.lineTo(-6, 5);
+        cx.closePath(); cx.fill();
+      }
+      cx.globalAlpha = 1;
+      if (c.id === leadId) {
+        cx.strokeStyle = "#e6edf3"; cx.lineWidth = 1.5;
+        cx.beginPath(); cx.arc(0, 0, 11 * zf, 0, 2 * Math.PI); cx.stroke();
+      }
+      cx.restore();
+    }
+  } else if (s) {
+    // Single-car mode (Phases 1-3).
+    const zf = Math.min(Math.pow(view.zoom, 0.6), 3);
+    cx.save();
+    cx.translate(tx(x), ty(y));
+    cx.rotate(-h);
+    cx.scale(zf, zf);
+    const phase = s.phase;
+    cx.fillStyle = phase === "running" ? "#58a6ff" : phase === "paused" ? "#d29922" : "#8b949e";
+    cx.beginPath();
+    cx.moveTo(11, 0); cx.lineTo(-7, -6); cx.lineTo(-4, 0); cx.lineTo(-7, 6);
+    cx.closePath(); cx.fill();
+    cx.restore();
+    cx.fillStyle = "#8b949e"; cx.font = "11px Consolas";
+    cx.fillText(`${s.car.vel_long.toFixed(1)} m/s`, tx(x) + 12 * zf, ty(y) - 10 * zf);
+  }
+
+  // HUD numbers (DOM side)
+  if (s) {
+    $("speed").innerHTML = `${(s.car.vel_long * 3.6).toFixed(0)}<small> km/h</small>`;
+    $("lap").textContent = `${s.laps_done}`;
+    if (s.quali) {
+      const q = s.quali;
+      $("phase").innerHTML = `<small style="color:var(--muted)">QUALIFYING </small>` +
+        `car ${q.car} · run ${q.run}/${q.total} · ${Math.ceil(q.remaining_s)}s`;
+      $("phase").style.color = "var(--accent)";
+    } else if (s.rc && s.rc.sc) {
+      // Safety car out: the phase cell becomes the SC banner.
+      $("phase").innerHTML = `<small style="color:var(--muted)">RACE CONTROL </small>SAFETY CAR`;
+      $("phase").style.color = "var(--warn)";
+    } else if (s.phase === "formation") {
+      // Five-light start: filled dots for lights on, hollow for pending.
+      const n = s.lights || 0;
+      const dots = [1, 2, 3, 4, 5].map(i =>
+        `<span style="color:${i <= n ? "var(--bad)" : "var(--line)"};font-size:18px;line-height:1">●</span>`).join("");
+      $("phase").innerHTML = `<small style="color:var(--muted)">FORMATION </small>${dots}`;
+      $("phase").style.color = "var(--bad)";
+    } else {
+      $("phase").textContent = `${s.session || "race"} · ${s.phase}`;
+      $("phase").style.color = s.phase === "running" ? "var(--good)" : s.phase === "paused" ? "var(--warn)" : "var(--muted)";
+    }
+    const last = s.lap_times.length ? s.lap_times[s.lap_times.length - 1].toFixed(2) + " s" : "—";
+    $("lastlap").textContent = last;
+    $("sid").textContent = `${s.sid} · tick ${s.tick}`;
+    $("age").textContent = `${Math.max(0, now - latestRecvMs).toFixed(0)} ms`;
+    $("age").style.color = now - latestRecvMs > 500 ? "var(--bad)" : "var(--text)";
+    $("stream").textContent = `seq ${s.seq}${dropped ? " · +" + dropped + " dropped" : ""}`;
+    if (s.cars && s.cars.length) {
+      const active = s.cars.filter(c => !c.retired).length;
+      $("field").innerHTML = `${active}<small>/${s.cars.length} running</small>`;
+      $("contacts").textContent = s.contacts_total;
+    } else {
+      $("field").textContent = "1 car";
+      $("contacts").textContent = "—";
+    }
+  }
+}
+
+// ---------- view controls: zoom & pan ----------
+// view.cx/cy are the world-space point at the centre of the canvas; null
+// means "centre of the circuit". zoom multiplies the fit-to-canvas scale.
+// At zoom 1, centred, this reproduces the old static fit exactly.
+const view = { zoom: 1, cx: null, cy: null };
+let followLeader = false;
+const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function fitCanvas() {
+  // Back the canvas at device-pixel resolution so the zoomed map stays sharp.
+  cv.style.width = ""; cv.style.height = "";
+  const r = cv.getBoundingClientRect();
+  if (r.width < 10 || r.height < 10) return;
+  cv.style.width = r.width + "px"; cv.style.height = r.height + "px";
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr);
+  cv.height = Math.round(r.height * dpr);
+}
+window.addEventListener("resize", fitCanvas);
+
+function trackCenter() {
+  const b = trackBounds;
+  return b ? { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 } : { x: 0, y: 0 };
+}
+function baseView() {
+  const b = trackBounds || { minX: 0, minY: 0, maxX: 1, maxY: 1 };
+  const pad = 30;
+  const sc0 = Math.min((cv.width - 2 * pad) / (b.maxX - b.minX), (cv.height - 2 * pad) / (b.maxY - b.minY));
+  return { sc: sc0 * view.zoom };
+}
+function cssToBacking(css) {
+  const r = cv.getBoundingClientRect();
+  return {
+    x: (css.x - r.left) * (cv.width / r.width),
+    y: (css.y - r.top) * (cv.height / r.height),
+  };
+}
+// World point under a client-coordinate position, for the CURRENT view.
+// While following, render() keeps view.cx/cy in step with the leader, so
+// this stays correct in that mode too.
+function worldAt(css) {
+  const { sc } = baseView();
+  const p = cssToBacking(css);
+  const c = trackCenter();
+  const fx = view.cx ?? c.x, fy = view.cy ?? c.y;
+  return { x: fx + (p.x - cv.width / 2) / sc, y: fy - (p.y - cv.height / 2) / sc };
+}
+// Keep the viewport centre inside the circuit so panning can't lose the map.
+function clampFocus() {
+  if (!trackBounds || followLeader) return;
+  const { sc } = baseView();
+  const halfW = cv.width / 2 / sc, halfH = cv.height / 2 / sc;
+  const { minX, minY, maxX, maxY } = trackBounds;
+  const c = trackCenter();
+  view.cx = (maxX - minX) <= 2 * halfW ? c.x : clampN(view.cx ?? c.x, minX + halfW, maxX - halfW);
+  view.cy = (maxY - minY) <= 2 * halfH ? c.y : clampN(view.cy ?? c.y, minY + halfH, maxY - halfH);
+}
+function setZoom(z, anchorCss) {
+  if (!track) return;
+  z = clampN(z, 1, 10);
+  const before = worldAt(anchorCss);
+  view.zoom = z;
+  if (!followLeader) {
+    const { sc } = baseView();
+    const p = cssToBacking(anchorCss);
+    view.cx = before.x - (p.x - cv.width / 2) / sc;
+    view.cy = before.y + (p.y - cv.height / 2) / sc;
+    clampFocus();
+  }
+  updateZoomLabel();
+}
+function setFollow(on) {
+  followLeader = on;
+  $("vFollow").classList.toggle("active", on);
+  // Following at fit zoom just re-centres a map that already fits; zoom in a
+  // little so the toggle does something you can see.
+  if (on && view.zoom < 1.6) { view.zoom = 2.5; updateZoomLabel(); }
+}
+function resetView() {
+  view.zoom = 1; view.cx = view.cy = null;
+  setFollow(false);
+  updateZoomLabel();
+}
+function updateZoomLabel() { $("vZoomLabel").textContent = Math.round(view.zoom * 100) + "%"; }
+function centerCss() {
+  const r = cv.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  const z = clampN(view.zoom * Math.exp(-e.deltaY * 0.0015), 1, 10);
+  if (followLeader) { view.zoom = z; updateZoomLabel(); return; }
+  setZoom(z, { x: e.clientX, y: e.clientY });
+}, { passive: false });
+
+// Pointer events cover mouse and touch: one pointer pans, two pinch-zoom.
+const pointers = new Map();
+let pinch0 = null;
+cv.addEventListener("pointerdown", e => {
+  if (!track) return;
+  cv.setPointerCapture(e.pointerId);
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 1) cv.classList.add("panning");
+  if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    pinch0 = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, zoom: view.zoom };
+  }
+});
+cv.addEventListener("pointermove", e => {
+  if (!pointers.has(e.pointerId)) return;
+  const prev = pointers.get(e.pointerId);
+  const cur = { x: e.clientX, y: e.clientY };
+  pointers.set(e.pointerId, cur);
+  if (pointers.size === 1) {
+    if (followLeader) setFollow(false); // grabbing the map takes over
+    const { sc } = baseView();
+    const r = cv.getBoundingClientRect();
+    const k = cv.width / r.width;
+    const c = trackCenter();
+    view.cx = (view.cx ?? c.x) - (cur.x - prev.x) * k / sc;
+    view.cy = (view.cy ?? c.y) + (cur.y - prev.y) * k / sc;
+    clampFocus();
+  } else if (pointers.size === 2 && pinch0) {
+    const [a, b] = [...pointers.values()];
+    setZoom(pinch0.zoom * Math.hypot(a.x - b.x, a.y - b.y) / pinch0.dist,
+            { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  }
+});
+const releasePointer = e => {
+  pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinch0 = null;
+  if (!pointers.size) cv.classList.remove("panning");
+};
+cv.addEventListener("pointerup", releasePointer);
+cv.addEventListener("pointercancel", releasePointer);
+cv.addEventListener("dblclick", resetView);
+$("vZoomIn").onclick = () => setZoom(view.zoom * 1.4, centerCss());
+$("vZoomOut").onclick = () => setZoom(view.zoom / 1.4, centerCss());
+$("vReset").onclick = resetView;
+$("vFollow").onclick = () => setFollow(!followLeader);
+
+// ---------- track editor ----------
+// Mirrors the engine's pipeline (apexsim/src/track.rs): closed Catmull-Rom
+// through the control points, uniform arc-length resample, then the same
+// validation numbers. The server re-validates on save — the live readout is
+// so the drawing feels honest, not the authority.
+const editor = {
+  on: false, pts: [], drag: -1,
+  cv: $("edcv"), cx: $("edcv").getContext("2d"),
+};
+
+function edEnter() {
+  editor.on = true;
+  $("editor").classList.add("on");
+  $("vEditor").classList.add("active");
+  $("vEditor").textContent = "Exit editor";
+  edResize();
+  edRender();
+}
+function edLeave() {
+  editor.on = false;
+  $("editor").classList.remove("on");
+  $("vEditor").classList.remove("active");
+  $("vEditor").textContent = "Editor";
+}
+$("vEditor").onclick = () => (editor.on ? edLeave() : edEnter());
+$("edExit").onclick = edLeave;
+$("edUndo").onclick = () => { editor.pts.pop(); edRender(); };
+$("edClear").onclick = () => { editor.pts = []; edStatus("", "Click to place corners."); edRender(); };
+$("edWidth").oninput = e => {
+  $("edWidthV").textContent = (+e.target.value).toFixed(1) + " m";
+  edRender();
+};
+
+function edResize() {
+  const r = editor.cv.getBoundingClientRect();
+  if (r.width < 10) return;
+  const dpr = window.devicePixelRatio || 1;
+  editor.cv.width = Math.round(r.width * dpr);
+  editor.cv.height = Math.round(r.height * dpr);
+}
+window.addEventListener("resize", edResize);
+
+// Same basis as the engine: uniform Catmull-Rom, 40 samples per segment.
+function edDense(control) {
+  const steps = 40, n = control.length, out = [];
+  for (let i = 0; i < n; i++) {
+    const p0 = control[(i + n - 1) % n], p1 = control[i],
+          p2 = control[(i + 1) % n], p3 = control[(i + 2) % n];
+    for (let k = 0; k < steps; k++) {
+      const t = k / steps, t2 = t * t, t3 = t2 * t;
+      out.push([
+        0.5 * (2*p1[0] + (-p0[0]+p2[0])*t + (2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2 + (-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3),
+        0.5 * (2*p1[1] + (-p0[1]+p2[1])*t + (2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2 + (-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3),
+      ]);
+    }
+  }
+  return out;
+}
+function edResample(dense, n) {
+  const seg = [0]; let total = 0;
+  for (let i = 0; i < dense.length; i++) {
+    const a = dense[i], b = dense[(i + 1) % dense.length];
+    total += Math.hypot(b[0]-a[0], b[1]-a[1]);
+    seg.push(total);
+  }
+  const pts = []; let si = 0;
+  for (let k = 0; k < n; k++) {
+    const target = k * total / n;
+    while (si + 2 < seg.length && seg[si + 1] <= target) si++;
+    const end = si + 1 < seg.length ? seg[si + 1] : total;
+    const a = dense[si], b = dense[(si + 1) % dense.length];
+    const f = (target - seg[si]) / Math.max(end - seg[si], 1e-9);
+    pts.push([a[0] + (b[0]-a[0])*f, a[1] + (b[1]-a[1])*f]);
+  }
+  return { pts, length: total };
+}
+// The engine's structural law (closed loop) plus a live readout of what you
+// built. Only structure can refuse; tight corners, self-crossings, short laps
+// and missing pit lanes are ACCEPTED — they come back as notes.
+function edValidate(control, hw) {
+  if (control.length < 3) return { ok: false, why: `${control.length}/3 corners placed` };
+  const N = 1024;
+  const { pts, length } = edResample(edDense(control), N);
+  if (length < 50) return { ok: false, why: `the drawing is only ${length.toFixed(0)} m around — too small to form a circuit` };
+  const head = new Array(N); let prev = 0;
+  for (let i = 0; i < N; i++) {
+    const a = pts[(i + N - 1) % N], b = pts[(i + 1) % N];
+    let h = Math.atan2(b[1]-a[1], b[0]-a[0]);
+    while (h - prev > Math.PI) h -= 2 * Math.PI;
+    while (h - prev < -Math.PI) h += 2 * Math.PI;
+    head[i] = h; prev = h;
+  }
+  const turn = head[N-1] - head[0];
+  if (Math.abs(turn) < Math.PI) return { ok: false, why: "the drawing doubles back on itself — place the corners around so they form a closed loop" };
+  // Anything below is a note, not a refusal: the engine races it.
+  const hext = i => i < 0 ? head[i + N] - turn : i >= N ? head[i - N] + turn : head[i];
+  const ds = length / N;
+  let minR = Infinity;
+  for (let i = 0; i < N; i++) {
+    const k = Math.abs((hext(i+1) - hext(i-1)) / (2 * ds));
+    minR = Math.min(minR, 1 / Math.max(k, 1e-9));
+  }
+  const notes = [];
+  if (minR < 2 * hw) notes.push(`hairpin radius ${minR.toFixed(0)} m (tighter than the width — cars will run over the paint)`);
+  const clear = 2 * hw + 1;
+  cross:
+  for (let i = 0; i < N; i += 4) {
+    for (let j = i + 4; j < N; j += 4) {
+      const gap = Math.min(j - i, N - (j - i)) * ds;
+      if (gap > 30) {
+        if (Math.hypot(pts[i][0]-pts[j][0], pts[i][1]-pts[j][1]) < clear) {
+          notes.push("the loop crosses itself (figure-8 — drivable, just optimistic)");
+          break cross;
+        }
+      }
+    }
+  }
+  // Pit fit with the default fractions (0.10/0.15/0.22) and the engine's
+  // 120 m braking zone: below it the race simply runs without a pit lane.
+  if (0.10 * length <= 120) notes.push(`too short for a pit lane at ${length.toFixed(0)} m — the race runs without stops`);
+  const head0 = `lap ${length.toFixed(0)} m · tightest radius ${minR.toFixed(0)} m`;
+  if (notes.length) return { ok: true, warn: true, why: `${head0} — will race (${notes.join("; ")})` };
+  return { ok: true, warn: false, why: `${head0} — clean` };
+}
+
+function edStatus(cls, text) {
+  const el = $("edStatus");
+  el.className = cls;
+  el.textContent = text;
+}
+
+function edRender() {
+  const cv = editor.cv, cx = editor.cx;
+  const W = cv.width, H = cv.height;
+  cx.clearRect(0, 0, W, H);
+  const dpr = window.devicePixelRatio || 1;
+  const hw = +$("edWidth").value;
+  // Fit the CONTROL points (plus smoothing margin) to the canvas.
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  for (const [x, y] of editor.pts) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  if (editor.pts.length === 0) { minX = 0; minY = 0; maxX = 600; maxY = 400; }
+  const pad = 60 * dpr;
+  const sc = Math.min((W - 2*pad) / Math.max(maxX - minX, 60), (H - 2*pad) / Math.max(maxY - minY, 60));
+  const fx = (minX + maxX) / 2, fy = (minY + maxY) / 2;
+  const tx = x => W / 2 + (x - fx) * sc;
+  const ty = y => H / 2 - (y - fy) * sc;
+
+  // Grid, 50 m.
+  cx.strokeStyle = "#151a21"; cx.lineWidth = 1;
+  const g0x = Math.floor((fx - W/2/sc) / 50) * 50, g1x = fx + W/2/sc;
+  for (let gx = g0x; gx <= g1x; gx += 50) { cx.beginPath(); cx.moveTo(tx(gx), 0); cx.lineTo(tx(gx), H); cx.stroke(); }
+  const g0y = Math.floor((fy - H/2/sc) / 50) * 50, g1y = fy + H/2/sc;
+  for (let gy = g0y; gy <= g1y; gy += 50) { cx.beginPath(); cx.moveTo(0, ty(gy)); cx.lineTo(W, ty(gy)); cx.stroke(); }
+
+  const v = edValidate(editor.pts, hw);
+  if (editor.pts.length >= 3) {
+    // Smoothed preview: green = clean, amber = races with notes, red = not a circuit.
+    const dense = edDense(editor.pts);
+    const stroke = v.ok ? (v.warn ? "#d29922" : "#3fb950") : "#f85149";
+    const line   = v.ok ? (v.warn ? "#bb8009" : "#2ea043") : "#b91c1c";
+    cx.strokeStyle = stroke;
+    cx.lineWidth = hw * 2 * sc * 0.9;
+    cx.globalAlpha = 0.35;
+    cx.beginPath();
+    dense.forEach(([x, y], i) => i ? cx.lineTo(tx(x), ty(y)) : cx.moveTo(tx(x), ty(y)));
+    cx.closePath(); cx.stroke();
+    cx.globalAlpha = 1;
+    cx.strokeStyle = line;
+    cx.lineWidth = 2 * dpr;
+    cx.setLineDash([8 * dpr, 6 * dpr]);
+    cx.stroke();
+    cx.setLineDash([]);
+  }
+  // Control points.
+  editor.pts.forEach(([x, y], i) => {
+    cx.fillStyle = i === editor.drag ? "#58a6ff" : "#e6edf3";
+    cx.beginPath(); cx.arc(tx(x), ty(y), 5 * dpr, 0, 2 * Math.PI); cx.fill();
+    cx.fillStyle = "#8b949e"; cx.font = `${10 * dpr}px Consolas`;
+    cx.fillText(i + 1, tx(x) + 8 * dpr, ty(y) - 8 * dpr);
+  });
+  edStatus(!v.ok ? "bad" : v.warn ? "warn" : "good", v.why);
+}
+
+function edPos(e) {
+  const r = editor.cv.getBoundingClientRect();
+  // Inverse of the render transform: canvas px -> world m.
+  const dpr = window.devicePixelRatio || 1;
+  const hw = +$("edWidth").value;
+  let minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+  for (const [x, y] of editor.pts) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  if (editor.pts.length === 0) { minX = 0; minY = 0; maxX = 600; maxY = 400; }
+  const pad = 60 * dpr;
+  const sc = Math.min((editor.cv.width - 2*pad) / Math.max(maxX - minX, 60), (editor.cv.height - 2*pad) / Math.max(maxY - minY, 60));
+  const fx = (minX + maxX) / 2, fy = (minY + maxY) / 2;
+  return [(e.clientX - r.left) * (editor.cv.width / r.width), (e.clientY - r.top) * (editor.cv.height / r.height),
+          fx, fy, sc, editor.cv.width / 2, editor.cv.height / 2];
+}
+const edWorld = (px, py, fx, fy, sc, cx0, cy0) => [fx + (px - cx0) / sc, fy - (py - cy0) / sc];
+
+editor.cv.addEventListener("pointerdown", e => {
+  const [px, py, fx, fy, sc, cx0, cy0] = edPos(e);
+  const [wx, wy] = edWorld(px, py, fx, fy, sc, cx0, cy0);
+  // Grab an existing point if within 12 px.
+  const grabR = 12 * (editor.cv.width / editor.cv.getBoundingClientRect().width);
+  editor.drag = -1;
+  editor.pts.forEach(([x, y], i) => {
+    if (Math.hypot(px - (cx0 + (x - fx) * sc), py - (cy0 - (y - fy) * sc)) < grabR) editor.drag = i;
+  });
+  if (editor.drag === -1) { editor.pts.push([wx, wy]); editor.drag = editor.pts.length - 1; }
+  editor.cv.setPointerCapture(e.pointerId);
+  edRender();
+});
+editor.cv.addEventListener("pointermove", e => {
+  if (editor.drag === -1) return;
+  const [px, py, fx, fy, sc, cx0, cy0] = edPos(e);
+  const [wx, wy] = edWorld(px, py, fx, fy, sc, cx0, cy0);
+  editor.pts[editor.drag] = [wx, wy];
+  edRender();
+});
+editor.cv.addEventListener("pointerup", () => { editor.drag = -1; edRender(); });
+editor.cv.addEventListener("dblclick", e => {
+  const [px, py, fx, fy, sc, cx0, cy0] = edPos(e);
+  const grabR = 12 * (editor.cv.width / editor.cv.getBoundingClientRect().width);
+  let hit = -1;
+  editor.pts.forEach(([x, y], i) => {
+    if (Math.hypot(px - (cx0 + (x - fx) * sc), py - (cy0 - (y - fy) * sc)) < grabR) hit = i;
+  });
+  if (hit !== -1) { editor.pts.splice(hit, 1); editor.drag = -1; edRender(); }
+});
+
+function edTrackJson() {
+  return JSON.stringify({
+    name: ($("edName").value.trim() || "mytrack").toLowerCase().replace(/[^a-z0-9-_]/g, "-"),
+    half_width: +$("edWidth").value,
+    points: editor.pts.map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100]),
+  });
+}
+async function edSave() {
+  const v = edValidate(editor.pts, +$("edWidth").value);
+  if (!v.ok) { edStatus("bad", `refused: ${v.why}`); return null; }
+  const json = edTrackJson();
+  const res = await fetch("/api/tracks", { method: "POST", body: json });
+  const body = await res.json().catch(() => ({}));
+  if (!body.ok) { edStatus("bad", `server refused: ${body.error || res.status}`); return null; }
+  edStatus("good", `saved to ${body.file} — ${v.why}`);
+  return json;
+}
+$("edSave").onclick = async () => { await edSave(); };
+$("edSaveRace").onclick = async () => {
+  const json = await edSave();
+  if (!json) return;
+  // Stage the circuit for the next reset, then reset. The server validates
+  // again; after the reset event the dashboard re-fetches /api/track.
+  const spec = JSON.parse(json);
+  const res = await fetch("/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track: { version: 2, straight_len: 0, radius: 0, half_width: spec.half_width,
+                                    custom: { name: spec.name, points: spec.points } } }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (body.ok === false) { edStatus("bad", `server refused the switch: ${body.error}`); return; }
+  sendCmd("reset");
+  logEvent(`track editor — racing on <b>${spec.name}</b>`);
+  edLeave();
+};
+
+fitCanvas();
+updateZoomLabel();
+renderLaps();
+connect();
+render();
+</script>
+</body>
+</html>

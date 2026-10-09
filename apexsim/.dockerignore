@@ -1,0 +1,30 @@
+# The build context needs src/, static/, build.rs, Cargo.toml and Cargo.lock,
+# and nothing else. Sending the rest is not just slow: a local target/
+# directory is several GB, and Docker would happily upload all of it and then
+# ignore it.
+#
+# static/ is NOT excludable even though the runner image has no dashboard. The
+# crate embeds it at compile time with include_str!/include_bytes!, so a build
+# context without it does not compile. Only the built binary ships. Same for
+# build.rs, which computes the source hash the engine id depends on.
+
+target/
+out/
+artifacts/
+docs/
+tools/
+tests/
+
+# Docker's own files. The Dockerfile itself is not needed inside the image, and
+# a .dockerignore that ignores itself is harmless but confusing to read.
+Dockerfile
+.dockerignore
+
+# Editor and OS noise.
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Race logs are large (~10 MB per race) and are inputs/outputs, not source.
+*.log

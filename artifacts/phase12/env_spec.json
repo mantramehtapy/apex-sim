@@ -1,0 +1,47 @@
+{
+  "cars": 20,
+  "laps": 4,
+  "seed": 42,
+  "action_every_ticks": 5,
+  "max_steps": 12000,
+  "formation": true,
+  "noise": 0.002,
+  "obs": {
+    "scale": [
+      75.0,
+      45.0,
+      7.0,
+      0.5,
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.05,
+      0.45,
+      0.45,
+      75.0,
+      4.0,
+      12.0,
+      60.0,
+      75.0,
+      7.0,
+      60.0,
+      1.0,
+      1.0,
+      1.0,
+      75.0
+    ]
+  },
+  "reward": {
+    "progress_per_m": 1.0,
+    "off_track_per_step": -0.5,
+    "speed_per_step": 0.02,
+    "speed_ref_mps": 75.0
+  },
+  "termination": {
+    "stall_after_s": 3.0,
+    "stall_speed_mps": 0.5,
+    "off_track_after_s": 2.0,
+    "off_track_speed_mps": 0.5
+  }
+}
