@@ -27,6 +27,8 @@ use std::sync::Arc;
 enum Reply {
     /// A well-formed OpenAI chat completion carrying this content.
     Content(String),
+    /// A well-formed Ollama NATIVE /api/chat response (message.content).
+    Native(String),
     /// An HTTP error status (404 = model not loaded, Ollama's "unload").
     Status(u16, String),
     /// A 200 whose body is not the expected JSON shape.
@@ -68,6 +70,13 @@ impl Mock {
                                 );
                                 write_response(&mut sock, 200, "application/json", &body);
                             }
+                            Reply::Native(c) => {
+                                let body = format!(
+                                    r#"{{"message":{{"role":"assistant","content":{}}}}}"#,
+                                    json_string(c)
+                                );
+                                write_response(&mut sock, 200, "application/json", &body);
+                            }
                             Reply::Status(code, body) => {
                                 write_response(&mut sock, *code, "application/json", body);
                             }
@@ -94,6 +103,10 @@ impl Mock {
 
     fn endpoint(&self) -> String {
         format!("http://{}/v1/chat/completions", self.addr)
+    }
+
+    fn endpoint_native(&self) -> String {
+        format!("http://{}/api/chat", self.addr)
     }
 }
 
@@ -244,6 +257,39 @@ fn gate1_good_advice_is_applied_and_recorded() {
     let sum = o.ai.as_ref().expect("advisor ran");
     assert!(sum.applied >= 1);
     assert!(sum.pace_scale_final > 1.0, "push must raise the pace scale");
+}
+
+/// The default endpoint is Ollama's NATIVE /api/chat — the only surface that
+/// honours `think:false` (the /v1 layer ignores it, which is why tev1:0.8b
+/// timed out on every question before 2026-10-09). The client must speak the
+/// native response shape there, and the advice must parse and apply.
+#[test]
+fn gate1b_native_endpoint_shape_is_spoken_and_applied() {
+    // tev1's measured flat vocabulary: renamed question, off-list pace word.
+    let tev1_says = r#"{"pace": "low", "pit_intent": "none", "tire": "S"}"#;
+    let mock = Mock::start(vec![Reply::Native(tev1_says.into())]);
+    let mut cfg = scenario();
+    cfg.ai = Some(advisor(mock.endpoint_native()));
+    let (o, log) = run(cfg);
+
+    assert_complete(&o);
+    assert!(!log.is_empty(), "the advisor must have been consulted");
+    assert!(
+        tally(&log, "applied") + tally(&log, "low-conf") + tally(&log, "rejected") >= 1,
+        "a parseable native answer must not be a bad_answer/timeout; got {:?}",
+        log.iter().map(|x| (x.outcome, &x.detail)).collect::<Vec<_>>()
+    );
+    let x = &log[0];
+    assert!(
+        x.response.contains("pit_intent"),
+        "the raw native response must be recorded verbatim"
+    );
+    let sum = o.ai.as_ref().expect("advisor ran");
+    assert!(
+        sum.applied >= 1,
+        "tev1's flat answer must yield at least one applied field; got {:?}",
+        log.iter().map(|x| (x.outcome, &x.detail)).collect::<Vec<_>>()
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -8,10 +8,13 @@
 //! — prompt summary, model, raw response, latency, application tick, and
 //! outcome — so the benchmark can say when the model helps, ties, or hurts.
 //!
-//! Endpoint: stock Ollama speaks the OpenAI-compatible chat protocol, so
-//! the default is `http://127.0.0.1:11434/v1/chat/completions`. The plan's
-//! `/v1/systemone` path is not part of stock Ollama; the endpoint is
-//! configurable so a dedicated Tev1 server can be plugged in unchanged.
+//! Endpoint: stock Ollama speaks both the OpenAI-compatible chat protocol
+//! and its native `/api/chat` — and the native one is the only surface that
+//! honours `think: false` (the /v1 layer silently ignores it, which is why
+//! reasoning models like Tev1 timed out on every question before this was
+//! found). The default is `http://127.0.0.1:11434/api/chat`; the response
+//! shape follows the endpoint path, so any OpenAI-compatible server works
+//! by pointing the endpoint at its `/v1/chat/completions`.
 //! The model defaults to the plan's `tev1:0.8b` (requires Ollama ≥ 0.35);
 //! any local model works (`--ai-model qwen2.5:3b`).
 
@@ -44,7 +47,7 @@ pub struct AdvisorConfig {
 impl Default for AdvisorConfig {
     fn default() -> Self {
         AdvisorConfig {
-            endpoint: "http://127.0.0.1:11434/v1/chat/completions".into(),
+            endpoint: "http://127.0.0.1:11434/api/chat".into(),
             model: "tev1:0.8b".into(),
             every_laps: 2,
             timeout_ms: 5_000,
@@ -84,9 +87,9 @@ pub enum PaceChoice {
 impl PaceChoice {
     fn parse(s: &str) -> Option<PaceChoice> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "push" | "attack" => Some(PaceChoice::Push),
+            "push" | "attack" | "high" => Some(PaceChoice::Push),
             "hold" | "maintain" => Some(PaceChoice::Hold),
-            "conserve" | "lift" => Some(PaceChoice::Conserve),
+            "conserve" | "lift" | "low" => Some(PaceChoice::Conserve),
             _ => None,
         }
     }
@@ -166,20 +169,37 @@ pub fn chat(
     .parse()
     .map_err(|e| AiError::BadResponse(format!("bad endpoint host '{hostport}': {e}")))?;
 
-    let body = json!({
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "stream": false,
-        "temperature": 0.2,
-        "max_tokens": max_tokens,
-        // Ollama reasoning models: keep the chain of thought off the wire so
-        // the answer is the message content, and so the token budget is
-        // spent on the answer rather than on deliberation.
-        "think": false,
-    })
+    // The response/request SHAPE follows the endpoint path: Ollama's native
+    // /api/chat is the only surface that honours "think": false — its
+    // OpenAI-compatible /v1 layer silently ignores it, so reasoning models
+    // (Tev1) spend the whole token budget deliberating and never answer.
+    let native = path.ends_with("/api/chat");
+    let messages = json!([
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]);
+    let body = if native {
+        json!({
+            "model": model,
+            "messages": messages,
+            "stream": false,
+            "temperature": 0.2,
+            // Native endpoint: this flag WORKS here (it is ignored on /v1).
+            "think": false,
+            "options": { "num_predict": max_tokens },
+        })
+    } else {
+        json!({
+            "model": model,
+            "messages": messages,
+            "stream": false,
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+            // Kept for completeness; known to be ignored by Ollama's /v1 —
+            // point --ai-endpoint at /api/chat to actually disable thinking.
+            "think": false,
+        })
+    }
     .to_string();
 
     let req = format!(
@@ -226,10 +246,21 @@ pub fn chat(
     }
     let v: serde_json::Value =
         serde_json::from_str(body).map_err(|e| AiError::BadResponse(format!("json: {e}")))?;
-    let content = v["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| AiError::BadResponse("missing choices[0].message.content".into()))?
-        .to_string();
+    // Native /api/chat answers {message:{content}}; OpenAI shape answers
+    // {choices:[{message:{content}}]}.
+    let content = if native {
+        v["message"]["content"].as_str()
+    } else {
+        v["choices"][0]["message"]["content"].as_str()
+    }
+    .ok_or_else(|| {
+        AiError::BadResponse(if native {
+            "missing message.content".into()
+        } else {
+            "missing choices[0].message.content".into()
+        })
+    })?
+    .to_string();
     Ok(content)
 }
 
@@ -292,6 +323,12 @@ pub fn parse_advice(content: &str) -> Result<StrategyAdvice, String> {
     // Read one question's answer. Returns None for an unusable answer;
     // `imputed` is set when the model stated the choice but not a confidence.
     let read = |field: &str| -> Option<(String, Option<f64>, bool)> {
+        // Model-vocabulary aliases: models rename questions ("pit_intent")
+        // and answer outside the listed options ("low"); both are legible.
+        let field = match field {
+            "pit" if v.get("pit").is_none() && v.get("pit_intent").is_some() => "pit_intent",
+            f => f,
+        };
         let raw = v.get(field)?;
         // flat form: the value is the choice string itself
         if let Some(s) = raw.as_str() {
@@ -320,7 +357,7 @@ pub fn parse_advice(content: &str) -> Result<StrategyAdvice, String> {
     if let Some((c, conf, imputed)) = read("pit") {
         let choice = match c.as_str() {
             "now" | "yes" | "pit" => Some(true),
-            "stay" | "no" => Some(false),
+            "stay" | "no" | "none" | "skip" => Some(false),
             _ => None,
         };
         if let Some(choice) = choice {
@@ -456,6 +493,17 @@ mod tests {
         assert_eq!(a.pit, Some((false, IMPUTED_CONFIDENCE)));
         assert_eq!(a.tire, Some((Some(crate::race::TireCompound::Medium), IMPUTED_CONFIDENCE)));
         assert!(a.imputed, "missing confidence must be flagged as imputed");
+    }
+
+    #[test]
+    fn parses_tev1_vocabulary() {
+        // What tev1:0.8b actually emits (measured 2026-10-09 against stock
+        // Ollama /api/chat with think:false): renames `pit` to `pit_intent`
+        // and answers outside the listed option words ("low").
+        let a = parse_advice("{\"pace\": \"low\", \"pit_intent\": \"none\", \"tire\": \"S\"}").unwrap();
+        assert_eq!(a.pace, Some((PaceChoice::Conserve, IMPUTED_CONFIDENCE)));
+        assert_eq!(a.pit, Some((false, IMPUTED_CONFIDENCE)));
+        assert_eq!(a.tire, Some((Some(crate::race::TireCompound::Soft), IMPUTED_CONFIDENCE)));
     }
 
     #[test]
